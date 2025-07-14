@@ -1,40 +1,23 @@
 import streamlit as st
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
-from datetime import datetime
 
-# R/T scoring
+# Track list with R/T today (manual input)
+tracks_with_rt_today = [
+    "Wagga", "Nowra", "Maitland", "Angle Park", "Lakeside"
+]
+
+# Basic box bias templates (same layout for all tracks as example)
+track_bias = {
+    track: {1: "Good", 2: "Fair", 3: "Fair", 4: "Risky", 5: "Risky", 6: "Fair", 7: "Good", 8: "Good"}
+    for track in tracks_with_rt_today
+}
+
+# R/T scoring maps
 rt_score_map = {'E': 1, 'G': 2, 'F': 3, 'S': 4, 'R': 5}
 start_map = {'R': 'Railer', 'M': 'Middle', 'S': 'Middle', 'W': 'Wide'}
 bias_score_map = {"Good": 1, "Fair": 2, "Risky": 3, "Wide Bias": 2}
 
-# Basic box bias templates (same layout for all, just examples)
-default_bias = {1: "Good", 2: "Fair", 3: "Fair", 4: "Risky", 5: "Risky", 6: "Fair", 7: "Good", 8: "Good"}
-
-# --- Scrape R/T-Enabled Tracks from thedogs.com.au ---
-@st.cache_data(ttl=3600)
-def get_rt_tracks_today():
-    url = "https://www.thedogs.com.au/racing"
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    tracks_with_rt = []
-    for section in soup.select(".race-meeting"):
-        track_name_tag = section.select_one(".meeting-name")
-        if not track_name_tag:
-            continue
-        track_name = track_name_tag.get_text(strip=True)
-
-        race_tables = section.select(".race-table thead")
-        has_rt = any("R/T" in th.get_text() for table in race_tables for th in table.select("th"))
-
-        if has_rt:
-            tracks_with_rt.append(track_name)
-
-    return tracks_with_rt
-
-# --- Process R/T Code ---
+# Parse the R/T column (e.g. "G W" → 2, "Wide")
 def process_rt_trait(rt_value):
     if rt_value in ['NBT', 'SCR', 'N/A', None] or not isinstance(rt_value, str):
         return 3, 'Middle'
@@ -43,7 +26,7 @@ def process_rt_trait(rt_value):
     start = rt_clean[1] if len(rt_clean) > 1 and rt_clean[1] in start_map else 'M'
     return rt_score_map.get(rating, 3), start_map.get(start, 'Middle')
 
-# --- Collision Risk Function ---
+# Collision scoring
 def assess_collision_risk(row, df):
     risk = 0
     for _, other in df.iterrows():
@@ -54,9 +37,9 @@ def assess_collision_risk(row, df):
                 risk += 1
     return risk
 
-# --- Ranking Function ---
+# Ranking function
 def rank_dogs(df, selected_track):
-    df['Bias'] = df['Box'].map(default_bias)
+    df['Bias'] = df['Box'].map(track_bias[selected_track])
     df['Bias Score'] = df['Bias'].map(bias_score_map)
     df['RT Score'], df['Style'] = zip(*df['R/T'].map(process_rt_trait))
     df['Collision Risk'] = df.apply(lambda row: assess_collision_risk(row, df), axis=1)
@@ -68,20 +51,12 @@ def rank_dogs(df, selected_track):
 # ----------------------
 # 🎯 Streamlit App Start
 # ----------------------
-st.title("🐾 Greyhound R/T Collision & Split Analyser")
+st.title("🐾 Greyhound R/T Split & Collision Analyser")
 
-# Auto-populate track list from website
-st.markdown("#### ✅ Live Tracks with R/T (from thedogs.com.au)")
-tracks = get_rt_tracks_today()
-if not tracks:
-    st.warning("No R/T-enabled tracks found today.")
-    st.stop()
+track_choice = st.selectbox("Select Track", tracks_with_rt_today)
 
-track_choice = st.selectbox("Select Track", tracks)
-
-# Editable greyhound input
-st.markdown("### 🐶 Enter Race Field Data")
-st.caption("Use format like `G W` (Good, Wide), `E R`, or `F M`. Enter 8 dogs.")
+st.markdown("### 🐶 Enter Dog Data")
+st.caption("R/T format: E R, G W, F M, S R, etc.")
 
 default_data = pd.DataFrame({
     "Dog": [f"Dog {i}" for i in range(1, 9)],
